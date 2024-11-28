@@ -1,5 +1,12 @@
+from flask import Flask, render_template, request
 import requests
 import pandas as pd
+import os
+
+app = Flask(
+    __name__, 
+    template_folder=os.path.join(os.path.dirname(__file__), "../templates")
+)
 
 # Fetch team data for a specific gameweek
 def fetch_team_data(team_id, gameweek):
@@ -34,19 +41,6 @@ def fetch_fixtures():
         print(f"Error fetching fixture data: {response.status_code}")
         return None
 
-# Function to assess team form based on recent results
-def team_form(team_code):
-    return 1  # Assume the team is in good form for this example
-
-# Function to get fixture difficulty
-def fixture_difficulty(player_team, opponent_team):
-    if opponent_team in ['Manchester City', 'Liverpool']:  # Hard teams
-        return 3  # Hard
-    elif opponent_team in ['Aston Villa', 'Brighton']:  # Medium teams
-        return 2  # Medium
-    else:
-        return 1  # Easy teams
-
 # Check if a player is healthy (not injured or suspended)
 def is_player_healthy(player_id, player_data):
     player = player_data[player_data['id'] == player_id]  # Select the player by ID
@@ -74,7 +68,7 @@ def recommend_transfers(team_data, player_data, budget_remaining, fixtures):
 
     recommendations = []
     for _, player in underperforming_players.iterrows():
-        # Check if the player is healthy   
+        # Check if the player is healthy
         if not is_player_healthy(player['id'], player_data):
             continue  # Skip if player is injured or suspended
         
@@ -83,7 +77,7 @@ def recommend_transfers(team_data, player_data, budget_remaining, fixtures):
         next_opponent = fixtures[fixtures['team_a'] == player_team].iloc[0] if fixtures[fixtures['team_a'] == player_team].shape[0] > 0 else None
         if next_opponent is not None:
             opponent_team = next_opponent['team_h']  # Example for home fixture, adjust as necessary
-            difficulty = fixture_difficulty(player_team, opponent_team)
+            difficulty = 3 if opponent_team in ['Manchester City', 'Liverpool'] else 1  # Difficulty: 3 = Hard, 1 = Easy
         else:
             continue  # No upcoming fixture found
 
@@ -106,26 +100,27 @@ def recommend_transfers(team_data, player_data, budget_remaining, fixtures):
 
     return recommendations
 
-# Main Execution
-if __name__ == "__main__":
-    # User inputs
-    team_id = int(input("Enter your FPL team ID: "))
-    gameweek = int(input("Enter the current gameweek: "))
-    budget_remaining = float(input("Enter your remaining budget in millions: "))
-    
-    # Fetch team, player, and fixture data
-    team_data = fetch_team_data(team_id, gameweek)
-    player_data = fetch_player_data()
-    fixtures = fetch_fixtures()
+# Flask route to display the form and results
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        team_id = int(request.form["team_id"])
+        gameweek = int(request.form["gameweek"])
+        budget_remaining = float(request.form["budget_remaining"])
 
-    if team_data is not None and player_data is not None and fixtures is not None:
-        # Recommend transfers
-        transfers = recommend_transfers(team_data, player_data, budget_remaining, fixtures)
-        
-        # Display results
-        if transfers:
-            print("\nRecommended Transfers:")
-            for transfer in transfers:
-                print(f"Out: {transfer['player_out']} -> In: {transfer['player_in']} (Form: {transfer['form_in']}, Cost: £{transfer['cost_in']}m, Difficulty: {transfer['difficulty']})")
+        # Fetch team, player, and fixture data
+        team_data = fetch_team_data(team_id, gameweek)
+        player_data = fetch_player_data()
+        fixtures = fetch_fixtures()
+
+        if team_data is not None and player_data is not None and fixtures is not None:
+            # Recommend transfers
+            transfers = recommend_transfers(team_data, player_data, budget_remaining, fixtures)
+            return render_template("index.html", transfers=transfers)
         else:
-            print("No transfers recommended.")
+            return render_template("index.html", error="Error fetching data")
+
+    return render_template("index.html")
+
+if __name__ == "__main__":
+    app.run(debug=True)
